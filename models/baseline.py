@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import torchvision.models as models
 import os
 import pickle
+import torchxrayvision as xrv
+
 
 class ImageEncoder(nn.Module):
     """
@@ -12,14 +14,20 @@ class ImageEncoder(nn.Module):
     """
 
     def __init__(self, output_size = 1024, image_channel_type = 'normi', use_embedding = True, trainable = False,
-                 dropout_prob = 0.5, use_dropout = True, image_model_type = 'vgg16'):
+                 dropout_prob = 0.5, use_dropout = True, image_model_type = 'torchxrayvision'):
         super(ImageEncoder, self).__init__()
 
         self.image_channel_type = image_channel_type
         self.use_embedding      = use_embedding
         self.image_model_type   = image_model_type
+
+        if self.image_model_type == 'torchxrayvision':
+            #print("using pretrained models on xray images")
+            self.model = xrv.models.DenseNet(weights="densenet121-res224-all")
+            self.model = nn.Sequential(*(list(self.model.children())[:-2]))
+            #self.model = xrv.autoencoders.ResNetAE(weights="101-elastic")
         
-        if self.image_model_type == 'resnet152':
+        elif self.image_model_type == 'resnet152':
             self.model          = models.resnet152(weights = models.ResNet152_Weights.IMAGENET1K_V2)
             self.model          = nn.Sequential(*(list(self.model.children())[:-1]))
         else:
@@ -30,7 +38,14 @@ class ImageEncoder(nn.Module):
                 param.requires_grad = False
         
         self.fc    = nn.Sequential()
-        if self.image_model_type == 'resnet152':
+
+        if self.image_model_type == 'torchxrayvision':
+            #print("making fc for new model")
+            self.fc.append(nn.AdaptiveAvgPool2d((1, 1)))
+            self.fc.append(nn.Flatten())
+            self.fc.append(nn.Linear(1024, output_size))
+
+        elif self.image_model_type == 'resnet152':
             self.fc.append(nn.Linear(2048, output_size))
         else:
             self.fc.append(nn.Linear(4096, output_size))
@@ -39,14 +54,16 @@ class ImageEncoder(nn.Module):
         self.fc.append(nn.Tanh())
     
     def forward(self, images):
-        if not self.use_embedding: # Load the image embedding directly
-            images      = self.model(images)
+        #if not self.use_embedding: # Load the image embedding directly
+        
+        images      = self.model(images)
+        #images = self.model.encode(images)
 
         if self.image_model_type == 'resnet152':
             images      = images.flatten(start_dim = 1)
 
-        if self.image_channel_type == 'normi':
-            images      = F.normalize(images, p = 2, dim = 1)
+        if self.image_channel_type == 'normi': # COMMENT THIS OUT WHEN USING TORCHXRAYVISION
+            images      = F.normalize(images, p = 2, dim = 1) 
         image_embedding = self.fc(images)
         
         return image_embedding
@@ -135,7 +152,7 @@ class VQABaseline(nn.Module):
     """
     def __init__(self, vocab_size = 10000, word_embedding_size = 300, embedding_size = 1024, output_size = 1000,
                  lstm_hidden_size = 512, num_lstm_layers = 2, image_channel_type = 'normi', use_image_embedding = True,
-                 image_model_type = 'vgg16', dropout_prob = 0.5, train_cnn = False, use_dropout = True, attention_mechanism = 'element_wise_product', bi_directional=False, max_seq_len = 14, use_glove = False, use_lstm = True, embedding_file_path = None):
+                 image_model_type = 'torchxrayvision', dropout_prob = 0.5, train_cnn = False, use_dropout = True, attention_mechanism = 'element_wise_product', bi_directional=False, max_seq_len = 14, use_glove = False, use_lstm = True, embedding_file_path = None):
         super(VQABaseline, self).__init__()
         
         self.word_embedding_size = word_embedding_size
