@@ -57,7 +57,7 @@ def main():
     parser.add_argument('--use_lstm',               type=boolstr,   help='True if lstm is to be used', choices=[True, False], default=True)
     parser.add_argument('--use_glove',              type=boolstr,   help='True if glove embeddings are to be used', choices=[True, False], default=False)
     parser.add_argument('--embedding_file_name',    type=str,       help='glove embedding path file', default='word_embeddings_glove.pkl')
-
+    parser.add_argument('--use_bert',               type=boolstr,   help='True if BioClinicalBERT embeddings are to be used', choices=[True, False], default=True)
     parser.add_argument('--random_seed',            type=int,       help='random seed for the experiment', default=43)
     parser.add_argument('--run_mode',            type=str,       help='train or test', default='train')
 
@@ -66,7 +66,10 @@ def main():
     torch.manual_seed(args.random_seed)
     device       = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    transform    = transforms.Compose([
+    if args.use_bert:
+        transform = None
+    else:
+        transform    = transforms.Compose([
                        transforms.Resize((224, 224)),
                        transforms.ToTensor(),
                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
@@ -74,13 +77,13 @@ def main():
     if args.model == 'baseline':
         train_ds     = VQADataset(args.data_dir, top_k = args.top_k_answers, max_length = args.max_length, transform = transform,
                                   use_image_embedding = args.use_image_embedding, image_model_type = args.image_model_type,
-                                  ignore_unknowns = args.ignore_unknowns, use_softscore = args.use_softscore)
+                                  ignore_unknowns = args.ignore_unknowns, use_softscore = args.use_softscore,  use_bert=args.use_bert)
         val_ds       = VQADataset(args.data_dir, mode = 'val', top_k = args.top_k_answers, max_length = args.max_length, transform = transform,
                                   use_image_embedding = args.use_image_embedding, image_model_type = args.image_model_type,
-                                  ignore_unknowns = args.ignore_unknowns, use_softscore = args.use_softscore)
+                                  ignore_unknowns = args.ignore_unknowns, use_softscore = args.use_softscore, use_bert=args.use_bert)
         test_ds       = VQADataset(args.data_dir, mode = 'test', top_k = args.top_k_answers, max_length = args.max_length, transform = transform,
                                   use_image_embedding = args.use_image_embedding, image_model_type = args.image_model_type,
-                                  ignore_unknowns = args.ignore_unknowns, use_softscore = args.use_softscore)
+                                  ignore_unknowns = args.ignore_unknowns, use_softscore = args.use_softscore, use_bert=args.use_bert)
     else:
         raise Exception(f'Model Type {args.model} is not supported')
 
@@ -92,8 +95,11 @@ def main():
     test_loader   = DataLoader(test_ds, batch_size = batch_size, num_workers = 2, pin_memory = True)
 
     # Initialize the model on the device, and also use dataparallel if num_gpus available is > 1.
-    vocab_size   = len(pickle.load(open(os.path.join(args.data_dir, 'questions_vocab.pkl'), 'rb'))["word2idx"])
-    model        = get_model(args.model, vocab_size, args.use_image_embedding, args.use_dropout, args.top_k_answers, args.image_model_type, args.attention_mechanism, args.word_embedding_size, args.lstm_state_size, args.bi_directional, args.max_length, args.use_glove, args.use_lstm, os.path.join(args.data_dir,args.embedding_file_name))
+    if args.use_bert:
+        vocab_size = None
+    else:
+        vocab_size   = len(pickle.load(open(os.path.join(args.data_dir, 'questions_vocab.pkl'), 'rb'))["word2idx"])
+    model        = get_model(args.model, vocab_size, args.use_image_embedding, args.use_dropout, args.top_k_answers, args.image_model_type, args.attention_mechanism, args.word_embedding_size, args.lstm_state_size, args.bi_directional, args.max_length, args.use_glove, args.use_lstm, args.use_bert, os.path.join(args.data_dir,args.embedding_file_name))
     model        = nn.DataParallel(model).to(device) if num_gpus > 1 else model.to(device)
     
     # Optimizer - Adam/Adadelta
@@ -118,7 +124,7 @@ def main():
                     args.model_dir, args.log_dir, epochs = args.epochs,
                     run_name = args.run_name, use_sigmoid = args.use_sigmoid, use_sftmx_multiple_ans = args.use_sftmx_multiple_ans,
                     save_best_state = args.save_best_state, print_stats = args.print_stats,
-                    print_epoch_freq = args.print_epoch_freq, print_step_freq = args.print_step_freq)
+                    print_epoch_freq = args.print_epoch_freq, print_step_freq = args.print_step_freq, use_bert = args.use_bert)
 
         # Parse the log files and save epoch level and step level training stats in csv files.
         parse_tb_logs(args.log_dir, args.run_name, 'epoch')
