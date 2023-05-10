@@ -16,7 +16,7 @@ class ImageEncoder(nn.Module):
     """
 
     def __init__(self, output_size = 1024, image_channel_type = 'normi', use_embedding = True, trainable = False,
-                 dropout_prob = 0.5, use_dropout = True, image_model_type = 'torchxrayvision'):
+                 dropout_prob = 0.5, use_dropout = True, image_model_type = 'torchxrayvision', use_clip = False):
         super(ImageEncoder, self).__init__()
 
         self.image_channel_type = image_channel_type
@@ -53,10 +53,12 @@ class ImageEncoder(nn.Module):
 
         elif self.image_model_type == 'resnet152':
             self.fc.append(nn.Linear(2048, output_size))
+        elif self.image_model_type == 'vgg16':
+            self.fc.append(nn.Linear(4096, output_size))
         elif self.image_model_type == 'cass':
             self.fc.append(nn.Linear(1000, output_size))
-        else:
-            self.fc.append(nn.Linear(4096, output_size))
+        elif use_clip:
+            self.fc.append(nn.Linear(512, output_size))
         if use_dropout:
             self.fc.append(nn.Dropout(dropout_prob))
         self.fc.append(nn.Tanh())
@@ -81,7 +83,7 @@ class QuestionEncoder(nn.Module):
     class to encode the text channel, supports GloVe embeddings, vanilla LSTM and bi-directional LSTM based embeddings
     """
     def __init__(self, vocab_size = 10000, word_embedding_size = 300, hidden_size = 512, output_size = 1024,
-                 num_layers = 2, dropout_prob = 0.5, use_dropout = True, bi_directional = False, max_seq_len = 14, use_glove = False, use_lstm = False, use_bert = False, embedding_file_path = None):
+                 num_layers = 2, dropout_prob = 0.5, use_dropout = True, bi_directional = False, max_seq_len = 14, use_glove = False, use_lstm = False, use_bert = False, embedding_file_path = None, use_clip = False):
         super(QuestionEncoder, self).__init__()
         
         self.use_glove = use_glove
@@ -89,6 +91,7 @@ class QuestionEncoder(nn.Module):
         self.bi_directional = bi_directional
         self.max_seq_len  = max_seq_len
         self.hidden_size = hidden_size
+        self.use_clip = use_clip
         self.use_bert = use_bert
 
         if use_glove:
@@ -118,7 +121,9 @@ class QuestionEncoder(nn.Module):
         self.fc              = nn.Sequential()
         
         
-        if bi_directional:
+        if use_clip:
+            self.fc.append(nn.Linear(512, output_size))
+        elif bi_directional:
             self.fc.append(nn.Linear(2 * max_seq_len * hidden_size, output_size))
         elif use_bert:
             self.fc.append(nn.Linear(3072, output_size))
@@ -130,6 +135,9 @@ class QuestionEncoder(nn.Module):
         self.fc.append(nn.Tanh())
         
     def forward(self, questions):
+
+        if(self.use_clip):
+            return self.fc(questions)
         
         if self.use_bert:
             x = self.bert_model(input_ids = questions[0], token_type_ids = questions[1], attention_mask = questions[2])
@@ -173,7 +181,7 @@ class VQABaseline(nn.Module):
     """
     def __init__(self, vocab_size = 10000, word_embedding_size = 300, embedding_size = 1024, output_size = 1000,
                  lstm_hidden_size = 512, num_lstm_layers = 2, image_channel_type = 'normi', use_image_embedding = True,
-                 image_model_type = 'torchxrayvision', dropout_prob = 0.5, train_cnn = False, use_dropout = True, attention_mechanism = 'element_wise_product', bi_directional=False, max_seq_len = 14, use_glove = False, use_lstm = True, use_bert = False, embedding_file_path = None):
+                 image_model_type = 'torchxrayvision', dropout_prob = 0.5, train_cnn = False, use_dropout = True, attention_mechanism = 'element_wise_product', bi_directional=False, max_seq_len = 14, use_glove = False, use_lstm = True, use_bert = False, embedding_file_path = None, use_clip = False):
         super(VQABaseline, self).__init__()
         
         self.word_embedding_size = word_embedding_size
@@ -184,7 +192,8 @@ class VQABaseline(nn.Module):
                                                 trainable              = train_cnn,
                                                 dropout_prob           = dropout_prob,
                                                 use_dropout            = use_dropout,
-                                                image_model_type       = image_model_type)
+                                                image_model_type       = image_model_type,
+                                                use_clip=use_clip)
         self.question_encoder    = QuestionEncoder(vocab_size          = vocab_size,
                                                    word_embedding_size = word_embedding_size,
                                                    hidden_size         = lstm_hidden_size,
@@ -197,7 +206,8 @@ class VQABaseline(nn.Module):
                                                    use_glove           = use_glove,
                                                    use_bert            = use_bert,
                                                    use_lstm            = use_lstm,
-                                                   embedding_file_path = embedding_file_path)
+                                                   embedding_file_path = embedding_file_path,
+                                                   use_clip=use_clip)
         self.attention_mechanism = attention_mechanism
         self.attention_fn = {'element_wise_product': lambda x,y:x*y, 'sum': torch.add, 'concat': lambda x,y:torch.cat((x,y),dim=1)}
         self.embedding_size_post_attention = {'element_wise_product': embedding_size, 'sum': embedding_size, 'concat': 2*embedding_size}

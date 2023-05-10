@@ -13,8 +13,8 @@ import torchxrayvision as xrv
 import skimage
 from transformers import AutoTokenizer
 class VQADataset(Dataset):
-    
-    def __init__(self, data_dir, transform = None, mode = 'train', use_image_embedding = False, image_model_type = 'torchxrayvision', top_k = 1000, max_length = 14, ignore_unknowns = True, use_softscore = True, use_bert = False):
+  
+    def __init__(self, data_dir, transform = None, mode = 'train', use_image_embedding = False, image_model_type = 'torchxrayvision', top_k = 1000, max_length = 14, ignore_unknowns = True, use_softscore = True, use_bert = False, , use_clip = False):
         """
             - data_dir:            directory of images and preprocessed data
             - transform:           any transformations to be applied to image (if not using embeddings)
@@ -62,6 +62,8 @@ class VQADataset(Dataset):
         
         self.data_file             = f'{mode}_data.txt'
 
+        self.use_clip = use_clip
+
         # Read the processed data file
         with open(os.path.join(data_dir, self.data_file), 'r') as f:
             self.data              = f.read().strip().split('\n')
@@ -87,6 +89,7 @@ class VQADataset(Dataset):
             image_id = image_id.replace(".dcm", ".png")
             cv2.imwrite(image_id, rgb_image)
         if not self.use_image_embedding: # If not use embedding, load the image and apply transform
+
             # Prepare the image:
             if image_model_type == "torchxrayvision":
                 img = skimage.io.imread(image_id)
@@ -103,13 +106,16 @@ class VQADataset(Dataset):
                 img = self.transform(img)
         else: # if use embedding, directly load the embedding vector for VGG/ResNet
             if self.image_features == None:
-                self.image_features = pickle.load(open(os.path.join(self.data_dir, f'{self.mode}_image_embeddings_new_{self.image_model_type}.pkl'), 'rb'))
-            img  = self.image_features[image_id]
-
+                self.image_features = pickle.load(open(os.path.join(self.data_dir+'/clip/', f'{self.mode}_image_embeddings_final.pkl'), 'rb'))
+            img  = self.image_features[f"xmlab{int(image_id)}/source.jpg"]
+        
         # convert question words to indexes
         if self.use_bert:
             encoded = self.tokenizer.encode_plus(question, max_length=self.max_length, truncation=True, padding='max_length')
             question = {key:torch.LongTensor(value) for key, value in encoded.items()}
+        elif self.use_clip:
+            question_features = pickle.load(open(os.path.join(self.data_dir+'/clip/', f'{self.mode}_question_embeddings_final.pkl'), 'rb'))
+            question  = question_features[question]
         else:
             question = [self.word2idx[w] if w in self.word2idx else self.word2idx['<unk>'] for w in question.split()]
             question = pad_sequences(question, self.max_length)
