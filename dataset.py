@@ -11,10 +11,10 @@ import torch
 import torchvision.transforms as transforms
 import torchxrayvision as xrv
 import skimage
-
+from transformers import AutoTokenizer
 class VQADataset(Dataset):
     
-    def __init__(self, data_dir, transform = None, mode = 'train', use_image_embedding = False, image_model_type = 'torchxrayvision', top_k = 1000, max_length = 14, ignore_unknowns = True, use_softscore = True):
+    def __init__(self, data_dir, transform = None, mode = 'train', use_image_embedding = False, image_model_type = 'torchxrayvision', top_k = 1000, max_length = 14, ignore_unknowns = True, use_softscore = True, use_bert = False):
         """
             - data_dir:            directory of images and preprocessed data
             - transform:           any transformations to be applied to image (if not using embeddings)
@@ -29,6 +29,21 @@ class VQADataset(Dataset):
         self.transform             = transform
         if image_model_type == "torchxrayvision":
             self.transform = transforms.Compose([xrv.datasets.XRayCenterCrop(),xrv.datasets.XRayResizer(224, engine="cv2")])
+        elif image_model_type == "cass":
+            DATASET_IMAGE_MEAN = (0.485, 0.456, 0.406)
+            DATASET_IMAGE_STD = (0.229, 0.224, 0.225)
+            if mode == "train":
+                self.transform = transforms.Compose([transforms.Resize((384,384)),
+                    transforms.RandomApply([transforms.ColorJitter(0.2, 0.2, 0.2),transforms.RandomPerspective(distortion_scale=0.2),], p=0.3),
+                    transforms.RandomApply([transforms.ColorJitter(0.2, 0.2, 0.2),transforms.RandomAffine(degrees=10),], p=0.3),
+                    transforms.RandomVerticalFlip(p=0.3),
+                    transforms.RandomHorizontalFlip(p=0.3),
+                    transforms.ToTensor(),
+                    transforms.Normalize(DATASET_IMAGE_MEAN, DATASET_IMAGE_STD), ])
+            else:
+                self.transform = transforms.Compose([transforms.Resize((384,384)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(DATASET_IMAGE_MEAN, DATASET_IMAGE_STD), ])
         self.mode                  = mode
         self.use_image_embedding   = use_image_embedding
         self.image_model_type      = image_model_type
@@ -37,7 +52,10 @@ class VQADataset(Dataset):
         self.label2idx             = {x[0]: i+1 for i, x in enumerate(collections.Counter(self.labelfreq).most_common(n = top_k - 1))}
         self.label2idx["<unk>"]    = 0
 
-        self.word2idx              = pickle.load(open(os.path.join(data_dir, 'questions_vocab.pkl'), 'rb'))["word2idx"]
+        if use_bert:
+            self.tokenizer         = AutoTokenizer.from_pretrained("emilyalsentzer/Bio_ClinicalBERT")
+        else:
+            self.word2idx          = pickle.load(open(os.path.join(data_dir, 'questions_vocab.pkl'), 'rb'))["word2idx"]
         self.max_length            = max_length
         self.ignore_unknowns       = ignore_unknowns
         self.use_softscore         = use_softscore
@@ -89,13 +107,18 @@ class VQADataset(Dataset):
             img  = self.image_features[image_id]
 
         # convert question words to indexes
-        question = [self.word2idx[w] if w in self.word2idx else self.word2idx['<unk>'] for w in question.split()]
-        question = pad_sequences(question, self.max_length)
-
+        if self.use_bert:
+            encoded = self.tokenizer.encode_plus(question, max_length=self.max_length, truncation=True, padding='max_length')
+            question = {key:torch.LongTensor(value) for key, value in encoded.items()}
+        else:
+            question = [self.word2idx[w] if w in self.word2idx else self.word2idx['<unk>'] for w in question.split()]
+            question = pad_sequences(question, self.max_length)
         # convert answer words to indexes
         answer   = self.label2idx[answer if answer in self.label2idx else '<unk>']
 
-        return img, question, answer
-
+        if self.use_bert:
+            return img, question['input_ids'], question['token_type_ids'], question['attention_mask'], answer
+        else:
+            return img, question, answer
 
 

@@ -5,6 +5,8 @@ import torchvision.models as models
 import os
 import pickle
 import torchxrayvision as xrv
+import timm
+from transformers import AutoModel
 
 
 class ImageEncoder(nn.Module):
@@ -30,6 +32,10 @@ class ImageEncoder(nn.Module):
         elif self.image_model_type == 'resnet152':
             self.model          = models.resnet152(weights = models.ResNet152_Weights.IMAGENET1K_V2)
             self.model          = nn.Sequential(*(list(self.model.children())[:-1]))
+        elif self.image_model_type == 'cass':
+            self.model = timm.create_model('vit_base_patch16_384', pretrained=True)
+            ckpt = torch.load('./cass_vit.pt')
+            self.model.load_state_dict(ckpt.module.state_dict())
         else:
             self.model          = models.vgg16(weights = models.VGG16_Weights.IMAGENET1K_V1)
             self.model.classifier   = nn.Sequential(*list(self.model.classifier)[:-1])
@@ -47,6 +53,8 @@ class ImageEncoder(nn.Module):
 
         elif self.image_model_type == 'resnet152':
             self.fc.append(nn.Linear(2048, output_size))
+        elif self.image_model_type == 'cass':
+            self.fc.append(nn.Linear(1000, output_size))
         else:
             self.fc.append(nn.Linear(4096, output_size))
         if use_dropout:
@@ -73,7 +81,7 @@ class QuestionEncoder(nn.Module):
     class to encode the text channel, supports GloVe embeddings, vanilla LSTM and bi-directional LSTM based embeddings
     """
     def __init__(self, vocab_size = 10000, word_embedding_size = 300, hidden_size = 512, output_size = 1024,
-                 num_layers = 2, dropout_prob = 0.5, use_dropout = True, bi_directional = False, max_seq_len = 14, use_glove = False, use_lstm = False, embedding_file_path = None):
+                 num_layers = 2, dropout_prob = 0.5, use_dropout = True, bi_directional = False, max_seq_len = 14, use_glove = False, use_lstm = False, use_bert = False, embedding_file_path = None):
         super(QuestionEncoder, self).__init__()
         
         self.use_glove = use_glove
@@ -81,6 +89,7 @@ class QuestionEncoder(nn.Module):
         self.bi_directional = bi_directional
         self.max_seq_len  = max_seq_len
         self.hidden_size = hidden_size
+        self.use_bert = use_bert
 
         if use_glove:
             self.weights_matrix = pickle.load(open(embedding_file_path, 'rb'))
@@ -90,6 +99,8 @@ class QuestionEncoder(nn.Module):
             self.word_embeddings.load_state_dict({'weight': torch.from_numpy(self.weights_matrix)})
             self.word_embeddings.weight.requires_grad = False
             
+        elif use_bert:
+            self.bert_model = AutoModel.from_pretrained("emilyalsentzer/Bio_ClinicalBERT",output_hidden_states=True)
 
         else:
             self.word_embeddings = nn.Sequential()
@@ -98,7 +109,7 @@ class QuestionEncoder(nn.Module):
                 self.word_embeddings.append(nn.Dropout(dropout_prob))
         
 
-        if not use_glove:
+        if not use_glove and not use_bert:
             self.word_embeddings.append(nn.Tanh())
 
         self.lstm            = nn.LSTM(input_size = word_embedding_size, hidden_size = hidden_size,
@@ -109,6 +120,8 @@ class QuestionEncoder(nn.Module):
         
         if bi_directional:
             self.fc.append(nn.Linear(2 * max_seq_len * hidden_size, output_size))
+        elif use_bert:
+            self.fc.append(nn.Linear(3072, output_size))
         else:
             self.fc.append(nn.Linear(2 * num_layers * hidden_size, output_size))
 
@@ -118,7 +131,15 @@ class QuestionEncoder(nn.Module):
         
     def forward(self, questions):
         
-        x                  = self.word_embeddings(questions)
+        if self.use_bert:
+            x = self.bert_model(input_ids = questions[0], token_type_ids = questions[1], attention_mask = questions[2])
+            hidden_states = x[2]
+            last_four_layers = [hidden_states[i] for i in (-1, -2, -3, -4)]
+            # cast layers to a tuple and concatenate over the last dimension
+            cat_hidden_states = torch.cat(tuple(last_four_layers), dim=-1)
+            x = torch.mean(cat_hidden_states, dim=1).squeeze()
+        else:
+            x                  = self.word_embeddings(questions)
         if self.use_lstm:
             if self.bi_directional == False:
                 # N * seq_length * 300
@@ -136,7 +157,7 @@ class QuestionEncoder(nn.Module):
             else:
                 x, (hidden, cell)  = self.lstm(x)
                 x = x.reshape(-1,2*self.max_seq_len*self.hidden_size)
-        else:
+        elif not self.use_bert:
             x = x.reshape(-1,self.max_seq_len*self.embedding_dim)
         question_embedding = self.fc(x)
         # (N * 1024)
@@ -152,7 +173,7 @@ class VQABaseline(nn.Module):
     """
     def __init__(self, vocab_size = 10000, word_embedding_size = 300, embedding_size = 1024, output_size = 1000,
                  lstm_hidden_size = 512, num_lstm_layers = 2, image_channel_type = 'normi', use_image_embedding = True,
-                 image_model_type = 'torchxrayvision', dropout_prob = 0.5, train_cnn = False, use_dropout = True, attention_mechanism = 'element_wise_product', bi_directional=False, max_seq_len = 14, use_glove = False, use_lstm = True, embedding_file_path = None):
+                 image_model_type = 'torchxrayvision', dropout_prob = 0.5, train_cnn = False, use_dropout = True, attention_mechanism = 'element_wise_product', bi_directional=False, max_seq_len = 14, use_glove = False, use_lstm = True, use_bert = False, embedding_file_path = None):
         super(VQABaseline, self).__init__()
         
         self.word_embedding_size = word_embedding_size
@@ -174,6 +195,7 @@ class VQABaseline(nn.Module):
                                                    bi_directional      = bi_directional,
                                                    max_seq_len         = max_seq_len,
                                                    use_glove           = use_glove,
+                                                   use_bert            = use_bert,
                                                    use_lstm            = use_lstm,
                                                    embedding_file_path = embedding_file_path)
         self.attention_mechanism = attention_mechanism
