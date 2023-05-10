@@ -60,6 +60,8 @@ def main():
 
     parser.add_argument('--random_seed',            type=int,       help='random seed for the experiment', default=43)
     parser.add_argument('--run_mode',            type=str,       help='train or test', default='train')
+    parser.add_argument('--use_clip',            type=str,       help='use clip for question embedding', default=False)
+
 
     args = parser.parse_args()
 
@@ -93,7 +95,7 @@ def main():
 
     # Initialize the model on the device, and also use dataparallel if num_gpus available is > 1.
     vocab_size   = len(pickle.load(open(os.path.join(args.data_dir, 'questions_vocab.pkl'), 'rb'))["word2idx"])
-    model        = get_model(args.model, vocab_size, args.use_image_embedding, args.use_dropout, args.top_k_answers, args.image_model_type, args.attention_mechanism, args.word_embedding_size, args.lstm_state_size, args.bi_directional, args.max_length, args.use_glove, args.use_lstm, os.path.join(args.data_dir,args.embedding_file_name))
+    model        = get_model(args.model, vocab_size, args.use_image_embedding, args.use_dropout, args.top_k_answers, args.image_model_type, args.attention_mechanism, args.word_embedding_size, args.lstm_state_size, args.bi_directional, args.max_length, args.use_glove, args.use_lstm, os.path.join(args.data_dir,args.embedding_file_name), args.use_clip)
     model        = nn.DataParallel(model).to(device) if num_gpus > 1 else model.to(device)
     
     # Optimizer - Adam/Adadelta

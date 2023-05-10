@@ -11,7 +11,7 @@ import torchvision.transforms as transforms
 
 class VQADataset(Dataset):
     
-    def __init__(self, data_dir, transform = None, mode = 'train', use_image_embedding = True, image_model_type = 'vgg16', top_k = 1000, max_length = 14, ignore_unknowns = True, use_softscore = True):
+    def __init__(self, data_dir, transform = None, mode = 'train', use_image_embedding = True, image_model_type = 'vgg16', top_k = 1000, max_length = 14, ignore_unknowns = True, use_softscore = True, use_clip = False):
         """
             - data_dir:            directory of images and preprocessed data
             - transform:           any transformations to be applied to image (if not using embeddings)
@@ -39,6 +39,8 @@ class VQADataset(Dataset):
         
         self.data_file             = f'{mode}_data.txt'
 
+        self.use_clip = use_clip
+
         # Read the processed data file
         with open(os.path.join(data_dir, self.data_file), 'r') as f:
             self.data              = f.read().strip().split('\n')
@@ -55,19 +57,22 @@ class VQADataset(Dataset):
         
         image_id, question, answer = self.data[idx].strip().split(',')
         if not self.use_image_embedding: # If not use embedding, load the image and apply transform
-            img = Image.open(f"{self.data_dir}/reformatted/xmlab{int(image_id)}.jpg")
+            img = Image.open(f"{self.data_dir}/imgs/xmlab{int(image_id)}/source.jpg")
             img = img.convert('RGB')
             if self.transform:
                 img = self.transform(img)
         else: # if use embedding, directly load the embedding vector for VGG/ResNet
             if self.image_features == None:
-                self.image_features = pickle.load(open(os.path.join(self.data_dir, f'{self.mode}_image_embeddings_new_{self.image_model_type}.pkl'), 'rb'))
-            img  = self.image_features[image_id]
+                self.image_features = pickle.load(open(os.path.join(self.data_dir+'/clip/', f'{self.mode}_image_embeddings_final.pkl'), 'rb'))
+            img  = self.image_features[f"xmlab{int(image_id)}/source.jpg"]
         
-        # convert question words to indexes
-        question = [self.word2idx[w] if w in self.word2idx else self.word2idx['<unk>'] for w in question.split()]
-        question = pad_sequences(question, self.max_length)
-
+        if not self.use_clip:
+            # convert question words to indexes
+            question = [self.word2idx[w] if w in self.word2idx else self.word2idx['<unk>'] for w in question.split()]
+            question = pad_sequences(question, self.max_length)
+        else:
+            question_features = pickle.load(open(os.path.join(self.data_dir+'/clip/', f'{self.mode}_question_embeddings_final.pkl'), 'rb'))
+            question  = question_features[question]
         # convert answer words to indexes
         answer   = self.label2idx[answer if answer in self.label2idx else '<unk>']
 
