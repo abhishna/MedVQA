@@ -6,7 +6,7 @@ import os
 import time
 import torch
 
-def train(model, train_loader, loss_fn, optimizer, device, completed_steps, use_sigmoid = False, use_sftmx_multiple_ans = False, print_step_freq = 50, print_stats = True, step_writer = None, prof=None):
+def train(model, train_loader, loss_fn, optimizer, device, completed_steps, use_sigmoid = False, use_sftmx_multiple_ans = False, print_step_freq = 50, print_stats = True, step_writer = None, prof=None, use_bert=False):
     """
         train the model for an epoch with data from train_loader on device
     """
@@ -15,10 +15,20 @@ def train(model, train_loader, loss_fn, optimizer, device, completed_steps, use_
     train_accuracy  = 0.0
     num_samples     = 0
 
-    for step, (images, questions, answers) in enumerate(train_loader):
-        images           = images.to(device)
-        questions        = questions.to(device)
-        answers          = answers.to(device)
+    for step, batch in enumerate(train_loader):
+        if use_bert:
+            (images, questions_ids, questions_token_ids, attn_mask, answers) = batch
+            images           = images.to(device)
+            questions_ids        = questions_ids.to(device)
+            questions_token_ids = questions_token_ids.to(device)
+            attn_mask = attn_mask.to(device)
+            questions = [questions_ids, questions_token_ids, attn_mask]
+            answers          = answers.to(device)
+        else:
+            (images, questions, answers) = batch
+            images           = images.to(device)
+            questions        = questions.to(device)
+            answers          = answers.to(device)
 
         optimizer.zero_grad()
 
@@ -52,7 +62,7 @@ def train(model, train_loader, loss_fn, optimizer, device, completed_steps, use_
 
     return model, optimizer, train_loss, train_accuracy
 
-def val(model, val_loader, loss_fn, device, use_sigmoid = False, use_sftmx_multiple_ans = False):
+def val(model, val_loader, loss_fn, device, use_sigmoid = False, use_bert = False, use_sftmx_multiple_ans = False):
     """
         calculate the validation loss and validation accuracy
     """
@@ -61,10 +71,20 @@ def val(model, val_loader, loss_fn, device, use_sigmoid = False, use_sftmx_multi
     val_accuracy = 0.0
     num_samples  = 0
 
-    for step, (images, questions, answers) in enumerate(val_loader):
-        images          = images.to(device)
-        questions       = questions.to(device)
-        answers         = answers.to(device)
+    for step, batch in enumerate(val_loader):
+        if use_bert:
+            (images, questions_ids, questions_token_ids, attn_mask, answers) = batch
+            images           = images.to(device)
+            questions_ids        = questions_ids.to(device)
+            questions_token_ids = questions_token_ids.to(device)
+            attn_mask = attn_mask.to(device)
+            questions = [questions_ids, questions_token_ids, attn_mask]
+            answers          = answers.to(device)
+        else:
+            (images, questions, answers) = batch
+            images          = images.to(device)
+            questions       = questions.to(device)
+            answers         = answers.to(device)
 
         pred_scores     = model(images, questions)
         l            = loss_fn(pred_scores, answers)
@@ -80,7 +100,7 @@ def val(model, val_loader, loss_fn, device, use_sigmoid = False, use_sftmx_multi
 
     return model, val_loss, val_accuracy
 
-def test(model, tst_loader, loss_fn, device, use_sigmoid = False, use_sftmx_multiple_ans = False):
+def test(model, tst_loader, loss_fn, device, use_sigmoid = False, use_bert = False, use_sftmx_multiple_ans = False):
     """
         calculate the test loss and test accuracy
     """
@@ -89,10 +109,20 @@ def test(model, tst_loader, loss_fn, device, use_sigmoid = False, use_sftmx_mult
     test_accuracy = 0.0
     num_samples  = 0
     c=0
-    for step, (images, questions, answers) in enumerate(tst_loader):
-        images          = images.to(device)
-        questions       = questions.to(device)
-        answers         = answers.to(device)
+    for step, batch in enumerate(tst_loader):
+        if use_bert:
+            (images, questions_ids, questions_token_ids, attn_mask, answers) = batch
+            images           = images.to(device)
+            questions_ids        = questions_ids.to(device)
+            questions_token_ids = questions_token_ids.to(device)
+            attn_mask = attn_mask.to(device)
+            questions = [questions_ids, questions_token_ids, attn_mask]
+            answers          = answers.to(device)
+        else:
+            (images, questions, answers) = batch
+            images    = images.to(device)
+            questions       = questions.to(device)
+            answers         = answers.to(device)
 
         pred_scores     = model(images, questions)
         l            = loss_fn(pred_scores, answers)
@@ -111,7 +141,7 @@ def test(model, tst_loader, loss_fn, device, use_sigmoid = False, use_sftmx_mult
 
 def train_model(model, train_loader, val_loader, loss_fn, optimizer, device, save_directory, log_directory,
                 epochs = 50, run_name = 'testrun', use_sigmoid = False, use_sftmx_multiple_ans = False,
-                save_best_state = True, save_logs = True, print_epoch_freq = 1, print_step_freq = 50, print_stats = True):
+                save_best_state = True, save_logs = True, print_epoch_freq = 1, print_step_freq = 50, print_stats = True, use_bert = False):
     """
         - model:                  model to train loaded on the device
         - train_loader:           data loader for training data
@@ -173,12 +203,12 @@ def train_model(model, train_loader, val_loader, loss_fn, optimizer, device, sav
         model, optimizer, train_loss, train_accuracy = train(model, train_loader, loss_fn, optimizer, device, completed_steps,
                                                              use_sigmoid = use_sigmoid, use_sftmx_multiple_ans = use_sftmx_multiple_ans,
                                                              print_step_freq = print_step_freq, print_stats = print_stats,
-                                                             step_writer = step_writer if save_logs else None, prof=prof)
+                                                             step_writer = step_writer if save_logs else None, prof=prof, use_bert=use_bert)
         train_time        = time.time() - train_start_time
 
         # validate an epoch
         val_start_time    = time.time()
-        model, val_loss, val_accuracy = val(model, val_loader, loss_fn, device, use_sigmoid = use_sigmoid, use_sftmx_multiple_ans = use_sftmx_multiple_ans)
+        model, val_loss, val_accuracy = val(model, val_loader, loss_fn, device, use_sigmoid = use_sigmoid, use_bert = use_bert, use_sftmx_multiple_ans = use_sftmx_multiple_ans)
         val_time          = time.time() - val_start_time
 
         # print statistics
