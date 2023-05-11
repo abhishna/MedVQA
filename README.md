@@ -7,11 +7,12 @@ VQA is a multi-disciplinary problem involving various domains such as Computer V
 
 Inspired by the extensive research conducted on generic, free form and open-ended Visual Question Answering (VQA), medical VQA has recently garnered attention and researchers have recently started exploring the scope of VQA in the medical and healthcare domain. We experiment with several deep learning models for effective image and text representation learning and demonstrate the effectiveness of intra-domain transfer learning over inter-domain transfer learning in the task of medical VQA. The proposed approach achieves accuracies comparable to the benchmark while being simpler in architecture.
 
-In our experiments, we model our approach inspired by [1, 3, 4] as shown below, but our motive is to strike the right tradeoff between model complexity / performance and accuracy. Our aim is to show that even a simpler architecture with the right design choices can help achieve accuracies reasonably close to the state-of-the-art, while being computationally efficient.
-![description](vqaSample.png)
+![description](vqasample.png)
 
-We work with the VQA baseline model[1] that uses a VGGNet to encode images and a two layer LSTM to encode questions, and transforming them to a common space via an element-wise multiplication, which is then through a fully connected layer followed by a softmax layer to obtain a distribution over answers. We explore various settings on this simple architecture and work on improving the VQA accuracy.
-![baseline](images/baseline.png)
+We use a common skeletal framework as depicted in the figure [source: 1] below, referred to as the joint embedding framework, which is the baseline model popularly compared against. Inspired by generic VQA, this framework is composed of an image vectorizer, a question vectorizer, a fusion algorithm to combine the features from the two modalities and an answer generator,
+which is a classifier model.
+
+![architecture](vqaarch.png)
 
 ## Repo Structure
     .
@@ -68,7 +69,7 @@ python preprocess.py --data_dir ../Dataset
 This script processes all the questions, annotations and saves each question example as a row in `image_id`\t`question`\t`answer`\t`answers` format in the processed `train_data.txt` and `val_data.txt` files. `image_id` is the unique id for each image in the respective train and val sets. The question and answer are space separated, answers is ^ separated for convenience. The answers are the 10 possible answers, and answer is the most frequent among them. This also saves the vocabulary of words in training questions mapping word to index and also index to the word in `questions_vocab.pkl` file, and also the frequencies of answers (that will be used later to construct the vocabulary for answers) in `answers_freq.pkl` file.
 
 #### 2. Dataset
-We use the SLAKE dataset[5] in our experiments to finetune pretrained visual and text encoders and for evaluation. SLAKE can be downloaded [here](https://www.med-vqa.com/slake/).
+We use the SLAKE dataset[2] in our experiments to finetune pretrained visual and text encoders and for evaluation. SLAKE can be downloaded [here](https://www.med-vqa.com/slake/).
 
 Run preprocess.py on Slake1.0 using the following command:
 ```
@@ -191,8 +192,5 @@ Here are some sample images and the top answers predicted using the best perform
 </p>
 
 ## References
-1. [VQA: Visual Question Answering.](https://openaccess.thecvf.com/content_iccv_2015/papers/Antol_VQA_Visual_Question_ICCV_2015_paper.pdf)
-2. [Making the V in VQA Matter: Elevating the Role of Image Understanding in Visual Question Answering.](https://openaccess.thecvf.com/content_cvpr_2017/papers/Goyal_Making_the_v_CVPR_2017_paper.pdf)
-3. [Show, Ask, Attend, and Answer: A Strong Baseline For Visual Question Answering.](https://arxiv.org/pdf/1704.03162.pdf)
-4. [Tips and Tricks for Visual Question Answering: Learnings from the 2017 Challenge.](https://openaccess.thecvf.com/content_cvpr_2018/papers/Teney_Tips_and_Tricks_CVPR_2018_paper.pdf)
-5. [SLAKE: A Semantically-Labeled Knowledge-Enhanced Dataset for Medical Visual Question Answering](https://arxiv.org/abs/2102.09542)
+1. [Medical Visual Question Answering: A Survey](https://arxiv.org/abs/2111.10056)
+2. [SLAKE: A Semantically-Labeled Knowledge-Enhanced Dataset for Medical Visual Question Answering](https://arxiv.org/abs/2102.09542)
